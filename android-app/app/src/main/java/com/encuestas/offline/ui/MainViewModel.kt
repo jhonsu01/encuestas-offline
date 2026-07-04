@@ -192,7 +192,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             busy = true
             status = "Buscando servidor en la red…"
-            val found = DiscoveryClient(getApplication()).discover()
+            val sv = surveyor
+            val found = DiscoveryClient(getApplication()).discover(
+                deviceId = deviceId,
+                name = sv?.fullName ?: "",
+                surveyorId = sv?.id ?: ""
+            )
             server = found
             status = if (found != null) "Servidor: ${found.host}:${found.port} (${found.method})"
             else "No se encontró servidor. Ingresa la IP manualmente."

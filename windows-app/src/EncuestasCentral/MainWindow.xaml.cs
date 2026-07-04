@@ -30,6 +30,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         _api = new ApiHost(_state);
         _state.OnLog += OnLog;
+        _discovery.OnDeviceSeen += OnDeviceSeen;
         EditorRoot.DataContext = _editorVM;
         LoadSurveysIntoEditor();
         UpdatePublishedCount();
@@ -38,6 +39,34 @@ public partial class MainWindow : Window
     private void OnLog(string message)
     {
         Dispatcher.Invoke(() => LogList.Items.Insert(0, $"{DateTime.Now:HH:mm:ss}  {message}"));
+    }
+
+    private void OnDeviceSeen(Discovery.DeviceSeen dev)
+    {
+        var id = string.IsNullOrWhiteSpace(dev.DeviceId) ? dev.Ip : dev.DeviceId;
+        var label = string.IsNullOrWhiteSpace(dev.Name) ? id : dev.Name;
+        Dispatcher.Invoke(() =>
+        {
+            OnLog($"📶 Dispositivo en red: {label} ({dev.Ip})" +
+                  (string.IsNullOrWhiteSpace(dev.SurveyorId) ? "" : $" — {dev.SurveyorId}"));
+            try
+            {
+                using var db = new AppDbContext();
+                db.Database.EnsureCreated();
+                if (db.Devices.Find(id) == null)
+                {
+                    db.Devices.Add(new DeviceRow
+                    {
+                        DeviceId = id,
+                        SurveyorId = dev.SurveyorId,
+                        FirstSeen = DateTime.UtcNow.ToString("o"),
+                        Allowed = true
+                    });
+                    db.SaveChanges();
+                }
+            }
+            catch { /* mejor esfuerzo */ }
+        });
     }
 
     // ---------------- Carga / seeding ----------------
@@ -99,8 +128,9 @@ public partial class MainWindow : Window
         {
             _ = _api.StartAsync(ServicePort);
             _discovery.Start();
-            StatusText.Text = $"Servidor ACTIVO en http://0.0.0.0:{ServicePort}  |  Broadcast UDP 8888";
-            OnLog("Servidor iniciado.");
+            var ips = string.Join(", ", Discovery.DiscoveryService.LocalIPv4());
+            StatusText.Text = $"Servidor ACTIVO  |  IPs del equipo: {ips}  |  puerto {ServicePort}  |  discovery UDP 8888";
+            OnLog($"Servidor iniciado. IPs del equipo: {ips} (si el teléfono no autodetecta, escribe una de estas en 'IP manual').");
         }
         catch (Exception ex)
         {
@@ -261,6 +291,15 @@ public partial class MainWindow : Window
         using var db = new AppDbContext();
         db.Database.EnsureCreated();
         SurveyorsGrid.ItemsSource = db.Surveyors.OrderByDescending(s => s.ResponseCount).ToList();
+    }
+
+    // ---------------- Dispositivos en red ----------------
+
+    private void RefreshDevices_Click(object sender, RoutedEventArgs e)
+    {
+        using var db = new AppDbContext();
+        db.Database.EnsureCreated();
+        DevicesGrid.ItemsSource = db.Devices.OrderByDescending(d => d.FirstSeen).ToList();
     }
 
     // ---------------- Dashboard ----------------

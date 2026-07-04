@@ -153,6 +153,21 @@
                 </Grid>
             </TabItem>
 
+            <!-- ===================== DISPOSITIVOS EN RED ===================== -->
+            <TabItem Header="Dispositivos">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Button Grid.Row="0" Content="Actualizar" Padding="10,5" HorizontalAlignment="Left" Click="RefreshDevices_Click" />
+                    <TextBlock Grid.Row="1" Margin="0,8" Foreground="#555"
+                               Text="Dispositivos/encuestadores detectados en la red (aparecen al abrir la app y autodetectar el servidor)." />
+                    <DataGrid x:Name="DevicesGrid" Grid.Row="2" IsReadOnly="True" AutoGenerateColumns="True" />
+                </Grid>
+            </TabItem>
+
             <!-- ===================== DASHBOARD ===================== -->
             <TabItem Header="Dashboard">
                 <Grid Margin="10">

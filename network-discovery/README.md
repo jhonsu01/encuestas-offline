@@ -1,42 +1,51 @@
-# Network Discovery — Protocolo de descubrimiento
+# Network Discovery — Protocolo de descubrimiento (UDP, puerto 8888)
 
-Módulo compartido (documentación + referencia de implementación) para que Android
-encuentre automáticamente la central Windows en la red local.
+Descubrimiento **bidireccional** por UDP en la LAN. Diseñado para ser robusto en PCs con
+varias tarjetas de red (WiFi + Ethernet + adaptadores virtuales) y con el firewall abierto
+por el instalador MSI.
 
-## 1. mDNS / Zeroconf (principal)
+## 1. Activo (principal): petición/respuesta
 
-- **Servicio:** `_encuestas._tcp.local`
-- **Puerto:** `5000`
-- **Publicación (Windows):** `Makaretu.Dns` / `Zeroconf` → ver
-  `windows-app/src/EncuestasCentral/Discovery/DiscoveryService.cs`
-- **Resolución (Android):** `android.net.nsd.NsdManager` → ver
-  `android-app/app/src/main/java/com/encuestas/offline/data/discovery/DiscoveryClient.kt`
+El dispositivo Android **pregunta** y el servidor **responde unicast** (lo más fiable):
 
-## 2. UDP Broadcast (fallback)
+```
+Android ──(broadcast :8888)──▶  { "type":"DISCOVER", "role":"device",
+                                  "deviceId":"...", "name":"...", "surveyorId":"..." }
+Servidor ──(unicast al origen)─▶ { "type":"SERVER", "service":"ENCUESTAS", "port":5000 }
+```
 
-- **Puerto:** `8888`
-- **Periodicidad:** cada 3 s desde la central.
-- **Mensaje:**
+- Android envía el `DISCOVER` a **todas** las direcciones de broadcast (255.255.255.255 +
+  la de cada interfaz) y espera la respuesta en el mismo socket.
+- Al recibir el `DISCOVER`, el servidor **registra al encuestador/dispositivo** (aparece en
+  la pestaña *Dispositivos* de la central) y responde con su IP:puerto.
+
+## 2. Pasivo (fallback): anuncio periódico
+
+El servidor emite cada 3 s por broadcast en **todas** las interfaces:
 
 ```json
-{
-  "type": "DISCOVERY",
-  "service": "ENCUESTAS",
-  "ip": "AUTO",
-  "port": 5000
-}
+{ "type": "DISCOVERY", "service": "ENCUESTAS", "ip": "AUTO", "port": 5000 }
 ```
 
-`"ip": "AUTO"` indica que el receptor debe usar la IP de origen del datagrama.
+Android puede escuchar este anuncio en el puerto 8888 si el activo no obtuvo respuesta.
+`"ip": "AUTO"` ⇒ usar la IP de origen del datagrama.
 
-## 3. Escaneo IP /24 (último recurso)
+## 3. Manual (último recurso)
 
-Si mDNS y UDP fallan, Android recorre el rango `x.y.z.1..254` de su propia subred
-y prueba `GET /health` en el puerto 5000. La primera IP que responde `status: ok`
-se toma como servidor.
+La central muestra sus **IPv4 locales** al iniciar el servidor. Si nada se autodetecta,
+se escribe esa IP en el campo **"IP manual"** de la app Android.
 
-## Orden de resolución
+## Requisitos de red
 
-```
-mDNS ──(timeout 4s)──▶ UDP broadcast ──(timeout 5s)──▶ escaneo /24 ──▶ manual (IP a mano)
-```
+- Teléfono y central en la **misma red WiFi/LAN**.
+- Firewall: el **MSI abre** automáticamente TCP 5000 (API) y UDP 8888 (discovery) en el
+  ámbito de red local. Si se ejecuta el `.exe` sin instalar, Windows pedirá permiso la
+  primera vez.
+
+## Implementación
+
+- Servidor (C#): `windows-app/src/EncuestasCentral/Discovery/DiscoveryService.cs`
+- Android (Kotlin): `android-app/app/src/main/java/com/encuestas/offline/data/discovery/DiscoveryClient.kt`
+
+> Nota: mDNS/Zeroconf queda como mejora futura; el protocolo UDP request/response cubre el
+> mismo caso de uso sin dependencias adicionales.

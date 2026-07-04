@@ -87,8 +87,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Instalar WiX
-        run: dotnet tool install --global wix --version 5.0.2
+      - name: Instalar WiX + extensión firewall
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.Firewall.wixext/5.0.2
 
       - name: Pruebas unitarias (.NET)
         run: dotnet test windows-app/tests/Encuestas.Tests/Encuestas.Tests.csproj -c Release --nologo
@@ -106,6 +108,7 @@ jobs:
           $pub = (Resolve-Path publish).Path
           $icon = (Resolve-Path windows-app/src/EncuestasCentral/Assets/app.ico).Path
           wix build windows-app/installer/Package.wxs `
+            -ext WixToolset.Firewall.wixext `
             -d "Version=${{ needs.version.outputs.version }}" `
             -d "PublishDir=$pub" `
             -d "IconFile=$icon" `

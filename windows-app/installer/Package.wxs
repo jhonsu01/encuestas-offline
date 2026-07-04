@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
   <Package Name="Encuestas Central"
            Manufacturer="jhonsu01"
            Version="$(var.Version)"
@@ -29,6 +30,11 @@
     <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
       <Component Id="MainExe" Guid="*">
         <File Id="MainExe" Source="$(var.PublishDir)\EncuestasCentral.exe" KeyPath="yes" />
+        <!-- Abre el firewall en la LAN: API (TCP 5000) + discovery (UDP 8888). -->
+        <fw:FirewallException Id="EncuestasFwTcp" Name="Encuestas Central (API)"
+                              Scope="localSubnet" Protocol="tcp" Port="5000" />
+        <fw:FirewallException Id="EncuestasFwUdp" Name="Encuestas Central (Discovery)"
+                              Scope="localSubnet" Protocol="udp" Port="8888" />
       </Component>
     </ComponentGroup>
 
