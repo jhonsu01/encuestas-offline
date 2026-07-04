@@ -1,0 +1,60 @@
+# ---- General ----
+.tmp/
+*.log
+.DS_Store
+Thumbs.db
+
+# ---- Meta / orquestación agentica (privado, NO forma parte del producto) ----
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+Guia.md
+/memory/
+/directives/
+/.claude/
+execution/script.py
+
+# ---- Secrets (NUNCA commitear) ----
+*.jks
+*.keystore
+!android-app/app/debug.keystore
+.env
+local.properties
+
+# ---- Android / Gradle ----
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/captures/
+android-app/.idea/
+android-app/*.iml
+android-app/local.properties
+*.apk.idsig
+
+# ---- .NET / Visual Studio ----
+windows-app/**/bin/
+windows-app/**/obj/
+api-local/**/bin/
+api-local/**/obj/
+windows-app/.vs/
+windows-app/publish*/
+*.user
+*.suo
+
+# ---- Artefactos de build (los genera CI) ----
+*.msi
+*.apk
+!shared-schema/*.json
+
+# ---- Node (network-discovery utils, si aplica) ----
+node_modules/
+
+# ---- Python (scripts de iconos) ----
+__pycache__/
+*.pyc
+
+# ---- Bases de datos locales ----
+*.db
+*.db-shm
+*.db-wal
+!shared-schema/*.json
