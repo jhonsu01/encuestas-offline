@@ -70,6 +70,7 @@ fun EncuestasAppUi(vm: MainViewModel = viewModel()) {
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (vm.screen) {
                 Screen.REGISTRO -> RegistroScreen(vm)
+                Screen.LOGIN -> LoginScreen(vm)
                 Screen.HOME -> HomeScreen(vm)
                 Screen.FORM -> FormScreen(vm)
                 Screen.CAMARA -> CameraCapture(
@@ -122,6 +123,33 @@ private fun RegistroScreen(vm: MainViewModel) {
 }
 
 @Composable
+private fun LoginScreen(vm: MainViewModel) {
+    var pin by remember { mutableStateOf("") }
+    val sv = vm.surveyor
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Ingreso", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text("Encuestador registrado", fontWeight = FontWeight.Bold)
+                Text(sv?.fullName ?: "—")
+                Text(sv?.id ?: "", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Text("Ingresa tu PIN para continuar.")
+        OutlinedTextField(
+            value = pin, onValueChange = { pin = it.filter { c -> c.isDigit() } },
+            label = { Text("PIN") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(onClick = { vm.login(pin) }, modifier = Modifier.fillMaxWidth()) { Text("Entrar") }
+        OutlinedButton(onClick = { vm.cambiarEncuestador() }, modifier = Modifier.fillMaxWidth()) {
+            Text("Cambiar encuestador")
+        }
+    }
+}
+
+@Composable
 private fun HomeScreen(vm: MainViewModel) {
     var host by remember { mutableStateOf("") }
 
@@ -132,6 +160,9 @@ private fun HomeScreen(vm: MainViewModel) {
                     Text("Encuestador", fontWeight = FontWeight.Bold)
                     Text(vm.surveyor?.let { "${it.fullName} (${it.id})" } ?: "—")
                     Text("Capturadas: ${vm.totalCount}  |  Pendientes de sync: ${vm.pendingCount}")
+                    OutlinedButton(onClick = { vm.logout() }, modifier = Modifier.padding(top = 8.dp)) {
+                        Text("🔒 Cerrar sesión")
+                    }
                 }
             }
         }

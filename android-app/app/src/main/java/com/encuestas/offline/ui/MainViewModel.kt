@@ -37,7 +37,7 @@ import java.io.File
 import java.time.Instant
 import kotlin.random.Random
 
-enum class Screen { REGISTRO, HOME, FORM, CAMARA, CIERRE }
+enum class Screen { REGISTRO, LOGIN, HOME, FORM, CAMARA, CIERRE }
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -70,7 +70,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     DocumentType.valueOf(it.documentType),
                     it.documentNumber, it.fullName, it.pin
                 )
-                screen = Screen.HOME
+                // Recordamos al encuestador, pero pedimos el PIN para entrar.
+                screen = Screen.LOGIN
             }
             loadLocalSurveys()
             refreshCounts()
@@ -78,6 +79,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun navigate(s: Screen) { screen = s }
+
+    /** Ingreso con PIN (el encuestador lo memoriza; nunca se autocompleta). */
+    fun login(pin: String) {
+        val sv = surveyor ?: run { navigate(Screen.REGISTRO); return }
+        if (pin == sv.pin) {
+            status = "Bienvenido, ${sv.fullName}"
+            navigate(Screen.HOME)
+        } else {
+            status = "PIN incorrecto"
+        }
+    }
+
+    /** Cierra la sesión: conserva los datos del encuestador y vuelve a pedir el PIN. */
+    fun logout() {
+        answers.clear(); imagePath = null; lat = null; lon = null; currentSurvey = null
+        status = "Sesión cerrada"
+        navigate(Screen.LOGIN)
+    }
+
+    /** Registrar un encuestador distinto (sobrescribe el actual). */
+    fun cambiarEncuestador() {
+        status = "Registra un nuevo encuestador"
+        navigate(Screen.REGISTRO)
+    }
 
     fun registrar(type: DocumentType, doc: String, name: String, pin: String) {
         if (doc.isBlank() || name.isBlank() || pin.length !in 4..8) {
