@@ -203,6 +203,8 @@
                             <ComboBoxItem Content="Encuestador" />
                             <ComboBoxItem Content="Fecha (día)" />
                         </ComboBox>
+                        <TextBlock VerticalAlignment="Center" Text="Encuesta:" Margin="0,0,6,0" />
+                        <ComboBox x:Name="EncuestaFilterCombo" Width="230" Margin="0,0,12,6" SelectionChanged="Filtro_Changed" />
                         <TextBlock VerticalAlignment="Center" Text="Encuestador:" Margin="0,0,6,0" />
                         <ComboBox x:Name="EncuestadorFilterCombo" Width="180" Margin="0,0,12,6" SelectionChanged="Filtro_Changed" />
                         <TextBlock VerticalAlignment="Center" Text="Día:" Margin="0,0,6,0" />

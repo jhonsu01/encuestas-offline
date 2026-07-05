@@ -382,19 +382,6 @@ public partial class MainWindow : Window
         public string Longitude { get; set; } = "";
         public string HasImage { get; set; } = "";
         public string Signature { get; set; } = "";
-
-        public static string CsvHeader() =>
-            "survey_id,survey_title,surveyor_id,timestamp,received_at,latitude,longitude,has_image,batch_pin,signature";
-
-        public string ToCsv()
-        {
-            var cols = new[]
-            {
-                SurveyId, SurveyTitle, SurveyorId, Timestamp, ReceivedAt,
-                Latitude, Longitude, HasImage, BatchPin ?? "", Signature
-            };
-            return string.Join(",", cols.Select(CsvEscape));
-        }
     }
 
     private static string CsvEscape(string? s)
@@ -459,6 +446,14 @@ public partial class MainWindow : Window
     {
         _suppressFilter = true;
 
+        var prevEnc = EncuestaFilterCombo.SelectedItem as string;
+        EncuestaFilterCombo.Items.Clear();
+        EncuestaFilterCombo.Items.Add("Todas");
+        foreach (var t in _allRows.Select(r => r.SurveyTitle).Where(x => !string.IsNullOrEmpty(x)).Distinct().OrderBy(x => x))
+            EncuestaFilterCombo.Items.Add(t);
+        EncuestaFilterCombo.SelectedItem =
+            (prevEnc != null && EncuestaFilterCombo.Items.Contains(prevEnc)) ? prevEnc : "Todas";
+
         var prevSurv = EncuestadorFilterCombo.SelectedItem as string;
         EncuestadorFilterCombo.Items.Clear();
         EncuestadorFilterCombo.Items.Add("Todos");
@@ -486,10 +481,12 @@ public partial class MainWindow : Window
 
     private void ApplyFilters()
     {
+        var enc = EncuestaFilterCombo.SelectedItem as string;
         var surv = EncuestadorFilterCombo.SelectedItem as string;
         var dia = DiaFilterCombo.SelectedItem as string;
 
         IEnumerable<DashboardRow> q = _allRows;
+        if (!string.IsNullOrEmpty(enc) && enc != "Todas") q = q.Where(r => r.SurveyTitle == enc);
         if (!string.IsNullOrEmpty(surv) && surv != "Todos") q = q.Where(r => r.SurveyorId == surv);
         if (!string.IsNullOrEmpty(dia) && dia != "Todos") q = q.Where(r => r.ReceivedDate == dia);
         _filteredRows = q.ToList();
@@ -532,6 +529,93 @@ public partial class MainWindow : Window
         return _filteredRows;
     }
 
+    /// <summary>Carga de BD las respuestas completas (con imagen/answers) del conjunto filtrado.</summary>
+    private (List<ResponseRow> responses, Dictionary<string, Survey> surveys, Dictionary<string, string> names)
+        LoadFilteredResponses(List<DashboardRow> rows)
+    {
+        var sigs = rows.Select(r => r.Signature).ToList();
+        using var db = new AppDbContext();
+        db.Database.EnsureCreated();
+
+        var responses = new List<ResponseRow>();
+        foreach (var chunk in sigs.Chunk(400))
+        {
+            var set = chunk.ToList();
+            responses.AddRange(db.Responses.Where(r => set.Contains(r.Signature)).ToList());
+        }
+        responses = responses.OrderByDescending(r => r.ReceivedAt).ToList();
+
+        var surveys = db.Surveys.ToList()
+            .Select(s => JsonSerializer.Deserialize<Survey>(s.Json, JsonOpts))
+            .Where(s => s != null)
+            .ToDictionary(s => s!.Id, s => s!);
+        var names = db.Surveyors.ToList().ToDictionary(s => s.Id, s => s.FullName ?? "");
+        return (responses, surveys, names);
+    }
+
+    /// <summary>
+    /// CSV "ancho": metadatos + una columna por pregunta (con la respuesta real).
+    /// Si el filtro deja una sola encuesta, las columnas quedan limpias y ordenadas.
+    /// </summary>
+    private static string BuildCsv(List<ResponseRow> responses,
+        Dictionary<string, Survey> surveys, Dictionary<string, string> surveyorNames)
+    {
+        // Columnas de respuesta: (surveyId, qId) en orden de aparición de cada encuesta.
+        var answerCols = new List<(string surveyId, string qId, string header)>();
+        var seen = new HashSet<string>();
+        var usedHeaders = new HashSet<string>();
+        foreach (var sid in responses.Select(r => r.SurveyId).Distinct())
+        {
+            if (!surveys.TryGetValue(sid, out var s)) continue;
+            foreach (var qq in s.Questions)
+            {
+                if (!seen.Add(sid + "|" + qq.Id)) continue;
+                var header = qq.Label;
+                if (!usedHeaders.Add(header))
+                {
+                    header = $"{qq.Label} ({s.Title})";
+                    usedHeaders.Add(header);
+                }
+                answerCols.Add((sid, qq.Id, header));
+            }
+        }
+
+        var metaHeaders = new[]
+        {
+            "encuesta", "encuestador_id", "encuestador_nombre", "fecha", "recibido",
+            "latitud", "longitud", "imagen", "lote_pin", "firma"
+        };
+
+        var sb = new StringBuilder();
+        sb.AppendLine(string.Join(",", metaHeaders.Concat(answerCols.Select(c => c.header)).Select(CsvEscape)));
+
+        foreach (var r in responses)
+        {
+            Dictionary<string, string> ans;
+            try { ans = JsonSerializer.Deserialize<Dictionary<string, string>>(r.AnswersJson) ?? new(); }
+            catch { ans = new(); }
+
+            var surveyTitle = surveys.TryGetValue(r.SurveyId, out var sv) ? sv.Title : r.SurveyId;
+            var name = surveyorNames.TryGetValue(r.SurveyorId, out var n) ? n : "";
+
+            var meta = new[]
+            {
+                surveyTitle, r.SurveyorId, name, SafeDate(r.ReceivedAt), r.ReceivedAt,
+                r.Latitude?.ToString(CultureInfo.InvariantCulture) ?? "",
+                r.Longitude?.ToString(CultureInfo.InvariantCulture) ?? "",
+                string.IsNullOrEmpty(r.ImageBase64) ? "no" : "sí",
+                r.BatchPin ?? "", r.Signature
+            };
+
+            var answerVals = answerCols.Select(c =>
+                c.surveyId == r.SurveyId && ans.TryGetValue(c.qId, out var v) ? v : "");
+
+            sb.AppendLine(string.Join(",", meta.Concat(answerVals).Select(CsvEscape)));
+        }
+
+        return sb.ToString();
+    }
+
     private void ExportarCsv_Click(object sender, RoutedEventArgs e)
     {
         var rows = EnsureRows();
@@ -551,14 +635,15 @@ public partial class MainWindow : Window
 
         try
         {
-            var sb = new StringBuilder();
-            sb.AppendLine(DashboardRow.CsvHeader());
-            foreach (var r in rows) sb.AppendLine(r.ToCsv());
+            var data = LoadFilteredResponses(rows);
+            var csv = BuildCsv(data.responses, data.surveys, data.names);
 
             // BOM UTF-8 para que Excel abra correctamente los acentos.
-            File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            OnLog($"Dashboard exportado a CSV: {rows.Count} filas → {dlg.FileName}");
-            MessageBox.Show($"Exportadas {rows.Count} respuestas (texto) a:\n{dlg.FileName}",
+            File.WriteAllText(dlg.FileName, csv, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            OnLog($"Exportado CSV con respuestas: {data.responses.Count} filas → {dlg.FileName}");
+            MessageBox.Show(
+                $"Exportadas {data.responses.Count} respuestas (con columnas de cada pregunta) a:\n{dlg.FileName}\n\n" +
+                "Consejo: filtra por una sola encuesta para obtener columnas limpias.",
                 "Exportar CSV", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
@@ -587,31 +672,12 @@ public partial class MainWindow : Window
 
         try
         {
-            var sigs = rows.Select(r => r.Signature).ToList();
-            using var db = new AppDbContext();
-            db.Database.EnsureCreated();
-
-            // Respuestas completas (con imagen) por chunks para no exceder límites de SQLite.
-            var responses = new List<ResponseRow>();
-            foreach (var chunk in sigs.Chunk(400))
-            {
-                var set = chunk.ToList();
-                responses.AddRange(db.Responses.Where(r => set.Contains(r.Signature)).ToList());
-            }
-            responses = responses.OrderByDescending(r => r.ReceivedAt).ToList();
-
-            var surveys = db.Surveys.ToList()
-                .Select(s => JsonSerializer.Deserialize<Survey>(s.Json, JsonOpts))
-                .Where(s => s != null)
-                .ToDictionary(s => s!.Id, s => s!);
-            var surveyorNames = db.Surveyors.ToList()
-                .ToDictionary(s => s.Id, s => s.FullName ?? "");
-
-            var html = BuildHtmlReport(responses, surveys, surveyorNames);
+            var data = LoadFilteredResponses(rows);
+            var html = BuildHtmlReport(data.responses, data.surveys, data.names);
             File.WriteAllText(dlg.FileName, html, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            OnLog($"Exportado HTML con imágenes: {responses.Count} respuestas → {dlg.FileName}");
+            OnLog($"Exportado HTML con imágenes: {data.responses.Count} respuestas → {dlg.FileName}");
             MessageBox.Show(
-                $"Exportadas {responses.Count} respuestas (con imágenes) a:\n{dlg.FileName}\n\n" +
+                $"Exportadas {data.responses.Count} respuestas (con imágenes) a:\n{dlg.FileName}\n\n" +
                 "Ábrelo con cualquier navegador; desde ahí puedes imprimirlo a PDF.",
                 "Exportar HTML", MessageBoxButton.OK, MessageBoxImage.Information);
         }
