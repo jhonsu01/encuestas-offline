@@ -48,6 +48,7 @@
                         <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
                             <StackPanel Orientation="Horizontal">
                                 <Button Content="＋ Nueva" Padding="8,4" Margin="0,0,4,0" Click="NuevaEncuesta_Click" />
+                                <Button Content="📥 Importar JSON…" Padding="8,4" Margin="0,0,4,0" Click="ImportarEncuesta_Click" />
                                 <Button Content="⧉ Clonar" Padding="8,4" Margin="0,0,4,0" Click="ClonarEncuesta_Click" />
                                 <Button Content="🗑 Eliminar" Padding="8,4" Click="EliminarEncuesta_Click" />
                             </StackPanel>
@@ -178,7 +179,15 @@
                     </Grid.RowDefinitions>
                     <StackPanel Orientation="Horizontal" Grid.Row="0">
                         <Button Content="Actualizar" Padding="10,5" Margin="0,0,16,0" Click="RefreshDashboard_Click" />
-                        <TextBlock x:Name="LblTotal" VerticalAlignment="Center" FontWeight="Bold" Text="Total: 0" />
+                        <TextBlock VerticalAlignment="Center" Text="Agrupar por:" Margin="0,0,6,0" />
+                        <ComboBox x:Name="GroupByCombo" Width="170" SelectedIndex="0" SelectionChanged="GroupByCombo_SelectionChanged">
+                            <ComboBoxItem Content="Sin agrupar" />
+                            <ComboBoxItem Content="Encuesta" />
+                            <ComboBoxItem Content="Encuestador" />
+                            <ComboBoxItem Content="Fecha (día)" />
+                        </ComboBox>
+                        <Button Content="💾 Exportar CSV…" Padding="10,5" Margin="16,0,0,0" Click="ExportarCsv_Click" />
+                        <TextBlock x:Name="LblTotal" VerticalAlignment="Center" FontWeight="Bold" Margin="16,0,0,0" Text="Total: 0" />
                     </StackPanel>
                     <TextBlock x:Name="LblBySurveyor" Grid.Row="1" Margin="0,8" TextWrapping="Wrap" />
                     <DataGrid x:Name="ResponsesGrid" Grid.Row="2" IsReadOnly="True" AutoGenerateColumns="True" />

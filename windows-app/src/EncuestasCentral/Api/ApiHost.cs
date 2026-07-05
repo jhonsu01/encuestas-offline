@@ -1,6 +1,7 @@
 using EncuestasCentral.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -28,6 +29,9 @@ public class ApiHost
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+        // Permitir payloads grandes: las respuestas embeben imágenes como Base64
+        // y el lote puede superar el límite por defecto de Kestrel (HTTP 413 Payload Too Large).
+        builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 200_000_000L); // 200 MB
         builder.Services.AddSingleton(_state);
         builder.Services.AddDbContext<AppDbContext>();
         builder.Services.ConfigureHttpJsonOptions(o =>

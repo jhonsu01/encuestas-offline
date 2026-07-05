@@ -44,6 +44,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.get(app)
     private val gson = Gson()
 
+    /** Máximo de respuestas por petición de sincronización (mitiga HTTP 413 con imágenes Base64). */
+    private val MAX_RESPUESTAS_POR_LOTE = 20
+
     @SuppressLint("HardwareIds")
     private val deviceId: String =
         "android-" + (Settings.Secure.getString(app.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown")
@@ -258,12 +261,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         imageBase64 = img, signature = r.signature
                     )
                 }
-                val batch = SyncBatch(pin, deviceId, sv.id, dtos)
-                val result = withContext(Dispatchers.IO) { api.sync(batch) }
-                db.responseDao().markSynced(pending.map { it.signature }, pin)
+
+                // Fragmentar el envío en lotes pequeños para evitar HTTP 413 Payload Too Large
+                // (las imágenes van embebidas como Base64 y pueden hacer el body muy grande).
+                // El servidor también acepta hasta 200 MB, pero esto añade robustez.
+                var accepted = 0
+                var duplicates = 0
+                var rejected = 0
+                var batchId: String? = null
+                var syncedSignatures = mutableListOf<String>()
+                val chunks = dtos.chunked(MAX_RESPUESTAS_POR_LOTE)
+                for ((idx, chunk) in chunks.withIndex()) {
+                    val batch = SyncBatch(pin, deviceId, sv.id, chunk)
+                    val result = withContext(Dispatchers.IO) { api.sync(batch) }
+                    accepted += result.accepted
+                    duplicates += result.duplicates
+                    rejected += result.rejected
+                    batchId = result.batchId ?: batchId
+                    // Se marcan como sincronizadas las firmas de este chunk (aceptadas y duplicadas
+                    // ya llegaron al servidor). Solo se avanza si el lote no fue rechazado entero.
+                    if (result.rejected < chunk.size) {
+                        syncedSignatures.addAll(chunk.map { it.signature })
+                    }
+                    status = "Sincronizando… lote ${idx + 1}/${chunks.size}"
+                }
+                if (syncedSignatures.isNotEmpty()) {
+                    db.responseDao().markSynced(syncedSignatures, pin)
+                }
                 refreshCounts()
-                status = "Sync OK (PIN $pin): ${result.accepted} aceptadas, " +
-                        "${result.duplicates} duplicadas, ${result.rejected} rechazadas"
+                status = "Sync OK (PIN $pin): $accepted aceptadas, " +
+                        "$duplicates duplicadas, $rejected rechazadas"
                 navigate(Screen.HOME)
             } catch (e: Exception) {
                 status = "Error de sync: ${e.message}"

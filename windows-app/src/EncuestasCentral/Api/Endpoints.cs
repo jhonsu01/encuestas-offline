@@ -2,6 +2,7 @@ using Encuestas.Core;
 using EncuestasCentral.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
@@ -129,6 +130,6 @@ public static class Endpoints
                 Rejected = 0,
                 BatchId = batchId
             });
-        });
+        }).WithMetadata(new RequestSizeLimitAttribute(200_000_000)); // 200 MB (imágenes Base64)
     }
 }

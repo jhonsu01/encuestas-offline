@@ -2,8 +2,11 @@ using Encuestas.Core;
 using EncuestasCentral.Api;
 using EncuestasCentral.Data;
 using Microsoft.Win32;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 
@@ -162,6 +165,44 @@ public partial class MainWindow : Window
         _editorVM.Selected = vm;
     }
 
+    private void ImportarEncuesta_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "JSON (*.json)|*.json|Todos los archivos (*.*)|*.*",
+            Title = "Importar encuesta desde JSON"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var json = File.ReadAllText(dlg.FileName);
+            var survey = JsonSerializer.Deserialize<Survey>(json, JsonOpts);
+            if (survey == null || string.IsNullOrWhiteSpace(survey.Title))
+            {
+                MessageBox.Show("El archivo no contiene una encuesta válida (falta el título).",
+                    "Importar", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Nuevo id para no colisionar con encuestas existentes al guardar.
+            var vm = SurveyEditVM.FromSurvey(survey);
+            vm.Id = SurveyEditVM.NewId();
+            _editorVM.Surveys.Add(vm);
+            _editorVM.Selected = vm;
+            OnLog($"Encuesta importada desde {dlg.FileName}: '{vm.Title}' ({vm.Questions.Count} preguntas). Guarda y publica para confirmar.");
+            MessageBox.Show(
+                $"Encuesta '{vm.Title}' importada con {vm.Questions.Count} pregunta(s).\n\n" +
+                "Revísala y pulsa «Guardar y publicar» para que los dispositivos puedan descargarla.",
+                "Importar", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"No se pudo leer el JSON:\n{ex.Message}",
+                "Importar", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void ClonarEncuesta_Click(object sender, RoutedEventArgs e)
     {
         var src = _editorVM.Selected;
@@ -304,20 +345,158 @@ public partial class MainWindow : Window
 
     // ---------------- Dashboard ----------------
 
-    private void RefreshDashboard_Click(object sender, RoutedEventArgs e)
+    /// <summary>Respuesta enriquecida para mostrar/exportar en el dashboard.</summary>
+    private sealed class DashboardRow
+    {
+        public string SurveyId { get; set; } = "";
+        public string SurveyTitle { get; set; } = "";
+        public string SurveyorId { get; set; } = "";
+        public string ReceivedAt { get; set; } = "";
+        public string ReceivedDate { get; set; } = "";
+        public string Timestamp { get; set; } = "";
+        public string BatchPin { get; set; } = "";
+        public string Latitude { get; set; } = "";
+        public string Longitude { get; set; } = "";
+        public string HasImage { get; set; } = "";
+        public string Signature { get; set; } = "";
+
+        public static string CsvHeader() =>
+            "survey_id,survey_title,surveyor_id,timestamp,received_at,latitude,longitude,has_image,batch_pin,signature";
+
+        public string ToCsv()
+        {
+            var cols = new[]
+            {
+                SurveyId, SurveyTitle, SurveyorId, Timestamp, ReceivedAt,
+                Latitude, Longitude, HasImage, BatchPin ?? "", Signature
+            };
+            return string.Join(",", cols.Select(CsvEscape));
+        }
+    }
+
+    private static string CsvEscape(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        if (s.IndexOfAny(new[] { ',', '"', '\n', '\r' }) < 0) return s;
+        return "\"" + s.Replace("\"", "\"\"") + "\"";
+    }
+
+    private List<DashboardRow> BuildDashboardRows()
     {
         using var db = new AppDbContext();
         db.Database.EnsureCreated();
-        var responses = db.Responses.OrderByDescending(r => r.ReceivedAt).ToList();
-        ResponsesGrid.ItemsSource = responses;
-        LblTotal.Text = $"Total de respuestas: {responses.Count}";
 
-        var bySurveyor = responses
-            .GroupBy(r => r.SurveyorId)
-            .Select(g => $"{g.Key}: {g.Count()}")
+        // Materializar primero (LINQ-to-Objects) para poder enriquecer con título/fecha en memoria.
+        var titles = db.Surveys.ToDictionary(s => s.Id, s => s.Title);
+        var raw = db.Responses
+            .OrderByDescending(r => r.ReceivedAt)
             .ToList();
-        LblBySurveyor.Text = bySurveyor.Count == 0
-            ? "Sin datos por encuestador."
-            : "Por encuestador → " + string.Join("   |   ", bySurveyor);
+
+        var rows = raw.Select(r => new DashboardRow
+        {
+            SurveyId = r.SurveyId,
+            SurveyTitle = titles.TryGetValue(r.SurveyId, out var t) ? t : r.SurveyId,
+            SurveyorId = r.SurveyorId,
+            ReceivedAt = r.ReceivedAt,
+            ReceivedDate = SafeDate(r.ReceivedAt),
+            Timestamp = r.Timestamp,
+            BatchPin = r.BatchPin ?? "",
+            Latitude = r.Latitude?.ToString(CultureInfo.InvariantCulture) ?? "",
+            Longitude = r.Longitude?.ToString(CultureInfo.InvariantCulture) ?? "",
+            HasImage = string.IsNullOrEmpty(r.ImageBase64) ? "no" : "sí",
+            Signature = r.Signature
+        }).ToList();
+        return rows;
+    }
+
+    private static string SafeDate(string isoTimestamp)
+    {
+        // ISO-8601 llega con 'T' o con espacio; tomamos solo la parte de fecha.
+        if (string.IsNullOrWhiteSpace(isoTimestamp)) return "";
+        var space = isoTimestamp.IndexOf('T');
+        if (space > 0) return isoTimestamp[..space];
+        space = isoTimestamp.IndexOf(' ');
+        return space > 0 ? isoTimestamp[..space] : isoTimestamp;
+    }
+
+    private void RefreshDashboard_Click(object sender, RoutedEventArgs e) => ApplyDashboard();
+
+    private void GroupByCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        // Se dispara también durante la inicialización (antes de que existan filas); lo ignoramos.
+        if (!IsLoaded) return;
+        ApplyDashboard();
+    }
+
+    private void ApplyDashboard()
+    {
+        var rows = BuildDashboardRows();
+        LblTotal.Text = $"Total de respuestas: {rows.Count}";
+
+        var groupKey = (GroupByCombo.SelectedIndex) switch
+        {
+            1 => "Encuesta",
+            2 => "Encuestador",
+            3 => "Fecha (día)",
+            _ => "Sin agrupar"
+        };
+
+        if (rows.Count == 0)
+        {
+            ResponsesGrid.ItemsSource = Array.Empty<DashboardRow>();
+            LblBySurveyor.Text = "Sin datos para mostrar.";
+            return;
+        }
+
+        IEnumerable<string> summary;
+        if (groupKey == "Encuesta")
+            summary = rows.GroupBy(r => $"{r.SurveyId} · {r.SurveyTitle}")
+                          .Select(g => $"{g.Key}: {g.Count()}");
+        else if (groupKey == "Encuestador")
+            summary = rows.GroupBy(r => r.SurveyorId).Select(g => $"{g.Key}: {g.Count()}");
+        else if (groupKey == "Fecha (día)")
+            summary = rows.GroupBy(r => r.ReceivedDate).OrderBy(g => g.Key)
+                          .Select(g => $"{g.Key}: {g.Count()}");
+        else
+            summary = rows.GroupBy(r => r.SurveyorId).Select(g => $"{g.Key}: {g.Count()}");
+
+        LblBySurveyor.Text = $"Agrupado por {groupKey} → " + string.Join("   |   ", summary);
+        ResponsesGrid.ItemsSource = rows;
+    }
+
+    private void ExportarCsv_Click(object sender, RoutedEventArgs e)
+    {
+        var rows = ResponsesGrid.ItemsSource as List<DashboardRow> ?? BuildDashboardRows();
+        if (rows.Count == 0)
+        {
+            MessageBox.Show("No hay respuestas para exportar. Pulsa «Actualizar» primero.",
+                "Exportar CSV", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new SaveFileDialog
+        {
+            Filter = "CSV (*.csv)|*.csv",
+            FileName = $"encuestas_{DateTime.Now:yyyyMMdd_HHmm}.csv"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(DashboardRow.CsvHeader());
+            foreach (var r in rows) sb.AppendLine(r.ToCsv());
+
+            // BOM UTF-8 para que Excel abra correctamente los acentos.
+            File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            OnLog($"Dashboard exportado a CSV: {rows.Count} filas → {dlg.FileName}");
+            MessageBox.Show($"Exportadas {rows.Count} respuestas a:\n{dlg.FileName}",
+                "Exportar CSV", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"No se pudo exportar:\n{ex.Message}",
+                "Exportar CSV", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 }

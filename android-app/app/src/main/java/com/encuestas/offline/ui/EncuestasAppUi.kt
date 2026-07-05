@@ -1,5 +1,7 @@
 package com.encuestas.offline.ui
 
+import android.app.DatePickerDialog
+import java.util.Calendar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,6 +27,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -33,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -218,15 +223,37 @@ private fun HomeScreen(vm: MainViewModel) {
 @Composable
 private fun FormScreen(vm: MainViewModel) {
     val survey = vm.currentSurvey ?: return
+    var pedirConfirmacion by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text(survey.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge) }
         items(survey.questions) { q -> QuestionInput(vm, q) }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { vm.navigate(Screen.HOME) }, modifier = Modifier.weight(1f)) { Text("Volver") }
-                Button(onClick = { vm.guardarRespuesta() }, modifier = Modifier.weight(1f)) { Text("Guardar") }
+                Button(onClick = { pedirConfirmacion = true }, modifier = Modifier.weight(1f)) { Text("Guardar") }
             }
         }
+    }
+    if (pedirConfirmacion) {
+        AlertDialog(
+            onDismissRequest = { pedirConfirmacion = false },
+            title = { Text("¿Guardar respuesta?") },
+            text = {
+                Text(
+                    "Una vez guardada la respuesta no podrás editarla. " +
+                        "Revisa que los datos estén correctos antes de confirmar."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pedirConfirmacion = false
+                    vm.guardarRespuesta()
+                }) { Text("Sí, guardar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pedirConfirmacion = false }) { Text("Seguir editando") }
+            }
+        )
     }
 }
 
@@ -258,10 +285,33 @@ private fun QuestionInput(vm: MainViewModel, q: Question) {
                 value = value, onValueChange = { vm.setAnswer(q.id, it.filter { c -> c.isDigit() }) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()
             )
-            "date" -> OutlinedTextField(
-                value = value, onValueChange = { vm.setAnswer(q.id, it) },
-                label = { Text("YYYY-MM-DD") }, modifier = Modifier.fillMaxWidth()
-            )
+            "date" -> {
+                val context = LocalContext.current
+                // Preselección: si ya hay fecha válida se usa; si no, hoy.
+                val initial = remember(value) {
+                    parseYmdOrNull(value) ?: Triple(
+                        Calendar.getInstance().get(Calendar.YEAR),
+                        Calendar.getInstance().get(Calendar.MONTH),
+                        Calendar.getInstance().get(Calendar.DAY_OF_MONTH)
+                    )
+                }
+                OutlinedButton(
+                    onClick = {
+                        val dlg = DatePickerDialog(
+                            context,
+                            { _, year, month, day ->
+                                vm.setAnswer(q.id, "%04d-%02d-%02d".format(year, month + 1, day))
+                            },
+                            initial.first, initial.second, initial.third
+                        )
+                        dlg.setOnCancelListener { /* sin acción */ }
+                        dlg.show()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (value.isBlank()) "📅 Seleccionar fecha" else "📅 $value")
+                }
+            }
             "image" -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { vm.navigate(Screen.CAMARA) }) { Text("📷 Tomar foto") }
                 Text(if (vm.imagePath != null) "✓ Imagen lista" else "Sin imagen")
@@ -298,4 +348,15 @@ private fun CierreScreen(vm: MainViewModel) {
             }
         }
     }
+}
+
+/** Convierte "YYYY-MM-DD" a (year, month0, day); null si el formato no coincide. */
+private fun parseYmdOrNull(value: String): Triple<Int, Int, Int>? {
+    val parts = value.split("-")
+    if (parts.size != 3) return null
+    val y = parts[0].toIntOrNull() ?: return null
+    val m = parts[1].toIntOrNull() ?: return null
+    val d = parts[2].toIntOrNull() ?: return null
+    if (m !in 1..12 || d !in 1..31) return null
+    return Triple(y, m - 1, d)
 }
