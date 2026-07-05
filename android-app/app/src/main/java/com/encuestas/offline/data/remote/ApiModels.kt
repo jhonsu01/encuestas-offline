@@ -27,6 +27,7 @@ data class SyncBatch(
     val pin: String,
     val deviceId: String,
     val surveyorDocument: String,
+    val surveyorName: String,
     val responses: List<ResponseDto>
 )
 

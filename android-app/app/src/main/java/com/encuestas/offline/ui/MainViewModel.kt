@@ -272,7 +272,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 var syncedSignatures = mutableListOf<String>()
                 val chunks = dtos.chunked(MAX_RESPUESTAS_POR_LOTE)
                 for ((idx, chunk) in chunks.withIndex()) {
-                    val batch = SyncBatch(pin, deviceId, sv.id, chunk)
+                    val batch = SyncBatch(pin, deviceId, sv.id, sv.fullName, chunk)
                     val result = withContext(Dispatchers.IO) { api.sync(batch) }
                     accepted += result.accepted
                     duplicates += result.duplicates

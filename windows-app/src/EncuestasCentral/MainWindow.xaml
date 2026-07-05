@@ -46,12 +46,12 @@
                     <DockPanel Grid.Column="0" Margin="0,0,12,0">
                         <TextBlock DockPanel.Dock="Top" Text="Encuestas" FontWeight="Bold" Margin="0,0,0,6" />
                         <StackPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="＋ Nueva" Padding="8,4" Margin="0,0,4,0" Click="NuevaEncuesta_Click" />
-                                <Button Content="📥 Importar JSON…" Padding="8,4" Margin="0,0,4,0" Click="ImportarEncuesta_Click" />
-                                <Button Content="⧉ Clonar" Padding="8,4" Margin="0,0,4,0" Click="ClonarEncuesta_Click" />
-                                <Button Content="🗑 Eliminar" Padding="8,4" Click="EliminarEncuesta_Click" />
-                            </StackPanel>
+                            <UniformGrid Columns="2" Rows="2">
+                                <Button Content="＋ Nueva" Padding="6,5" Margin="0,0,3,3" Click="NuevaEncuesta_Click" />
+                                <Button Content="📥 Importar JSON" Padding="6,5" Margin="0,0,0,3" Click="ImportarEncuesta_Click" />
+                                <Button Content="⧉ Clonar" Padding="6,5" Margin="0,3,3,0" Click="ClonarEncuesta_Click" />
+                                <Button Content="🗑 Eliminar" Padding="6,5" Margin="0,3,0,0" Click="EliminarEncuesta_Click" />
+                            </UniformGrid>
                             <TextBlock x:Name="PublishedCount" Margin="0,6,0,0" Foreground="#555" />
                         </StackPanel>
                         <ListBox x:Name="SurveysList"
@@ -150,7 +150,14 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <Button Grid.Row="0" Content="Actualizar" Padding="10,5" HorizontalAlignment="Left" Click="RefreshSurveyors_Click" />
-                    <DataGrid x:Name="SurveyorsGrid" Grid.Row="1" Margin="0,8,0,0" IsReadOnly="True" AutoGenerateColumns="True" />
+                    <DataGrid x:Name="SurveyorsGrid" Grid.Row="1" Margin="0,8,0,0" IsReadOnly="True" AutoGenerateColumns="False">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Documento" Binding="{Binding Id}" Width="170" />
+                            <DataGridTextColumn Header="Nombre completo" Binding="{Binding FullName}" Width="*" />
+                            <DataGridTextColumn Header="Primer contacto" Binding="{Binding FirstSeen}" Width="200" />
+                            <DataGridTextColumn Header="Respuestas" Binding="{Binding ResponseCount}" Width="110" />
+                        </DataGrid.Columns>
+                    </DataGrid>
                 </Grid>
             </TabItem>
 
@@ -165,7 +172,14 @@
                     <Button Grid.Row="0" Content="Actualizar" Padding="10,5" HorizontalAlignment="Left" Click="RefreshDevices_Click" />
                     <TextBlock Grid.Row="1" Margin="0,8" Foreground="#555"
                                Text="Dispositivos/encuestadores detectados en la red (aparecen al abrir la app y autodetectar el servidor)." />
-                    <DataGrid x:Name="DevicesGrid" Grid.Row="2" IsReadOnly="True" AutoGenerateColumns="True" />
+                    <DataGrid x:Name="DevicesGrid" Grid.Row="2" IsReadOnly="True" AutoGenerateColumns="False">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Dispositivo / Documento" Binding="{Binding DeviceId}" Width="240" />
+                            <DataGridTextColumn Header="Encuestador" Binding="{Binding SurveyorId}" Width="180" />
+                            <DataGridTextColumn Header="Primer contacto" Binding="{Binding FirstSeen}" Width="200" />
+                            <DataGridCheckBoxColumn Header="Permitido" Binding="{Binding Allowed}" Width="90" />
+                        </DataGrid.Columns>
+                    </DataGrid>
                 </Grid>
             </TabItem>
 
@@ -175,22 +189,52 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <StackPanel Orientation="Horizontal" Grid.Row="0">
-                        <Button Content="Actualizar" Padding="10,5" Margin="0,0,16,0" Click="RefreshDashboard_Click" />
-                        <TextBlock VerticalAlignment="Center" Text="Agrupar por:" Margin="0,0,6,0" />
-                        <ComboBox x:Name="GroupByCombo" Width="170" SelectedIndex="0" SelectionChanged="GroupByCombo_SelectionChanged">
+
+                    <!-- Fila 0: actualizar + filtros -->
+                    <WrapPanel Grid.Row="0">
+                        <Button Content="🔄 Actualizar" Padding="10,5" Margin="0,0,12,6" Click="RefreshDashboard_Click" />
+                        <TextBlock VerticalAlignment="Center" Text="Agrupar:" Margin="0,0,6,0" />
+                        <ComboBox x:Name="GroupByCombo" Width="140" SelectedIndex="0" Margin="0,0,12,6" SelectionChanged="Filtro_Changed">
                             <ComboBoxItem Content="Sin agrupar" />
                             <ComboBoxItem Content="Encuesta" />
                             <ComboBoxItem Content="Encuestador" />
                             <ComboBoxItem Content="Fecha (día)" />
                         </ComboBox>
-                        <Button Content="💾 Exportar CSV…" Padding="10,5" Margin="16,0,0,0" Click="ExportarCsv_Click" />
-                        <TextBlock x:Name="LblTotal" VerticalAlignment="Center" FontWeight="Bold" Margin="16,0,0,0" Text="Total: 0" />
+                        <TextBlock VerticalAlignment="Center" Text="Encuestador:" Margin="0,0,6,0" />
+                        <ComboBox x:Name="EncuestadorFilterCombo" Width="180" Margin="0,0,12,6" SelectionChanged="Filtro_Changed" />
+                        <TextBlock VerticalAlignment="Center" Text="Día:" Margin="0,0,6,0" />
+                        <ComboBox x:Name="DiaFilterCombo" Width="130" Margin="0,0,12,6" SelectionChanged="Filtro_Changed" />
+                    </WrapPanel>
+
+                    <!-- Fila 1: exportar / eliminar -->
+                    <WrapPanel Grid.Row="1" Margin="0,0,0,6">
+                        <Button Content="💾 Exportar CSV…" Padding="10,5" Margin="0,0,8,0" Click="ExportarCsv_Click" />
+                        <Button Content="🖼 Exportar HTML (con imágenes)…" Padding="10,5" Margin="0,0,8,0" Click="ExportarHtml_Click" />
+                        <Button Content="🗑 Eliminar filtrados…" Padding="10,5" Foreground="#B00020" Click="EliminarFiltrados_Click" />
+                    </WrapPanel>
+
+                    <!-- Fila 2: totales + resumen -->
+                    <StackPanel Grid.Row="2" Margin="0,2,0,6">
+                        <TextBlock x:Name="LblTotal" FontWeight="Bold" Text="Total: 0" />
+                        <TextBlock x:Name="LblBySurveyor" TextWrapping="Wrap" Foreground="#555" />
                     </StackPanel>
-                    <TextBlock x:Name="LblBySurveyor" Grid.Row="1" Margin="0,8" TextWrapping="Wrap" />
-                    <DataGrid x:Name="ResponsesGrid" Grid.Row="2" IsReadOnly="True" AutoGenerateColumns="True" />
+
+                    <DataGrid x:Name="ResponsesGrid" Grid.Row="3" IsReadOnly="True" AutoGenerateColumns="False">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Encuesta" Binding="{Binding SurveyTitle}" Width="210" />
+                            <DataGridTextColumn Header="Encuestador" Binding="{Binding SurveyorId}" Width="140" />
+                            <DataGridTextColumn Header="Fecha" Binding="{Binding ReceivedDate}" Width="100" />
+                            <DataGridTextColumn Header="Recibido" Binding="{Binding ReceivedAt}" Width="170" />
+                            <DataGridTextColumn Header="Latitud" Binding="{Binding Latitude}" Width="90" />
+                            <DataGridTextColumn Header="Longitud" Binding="{Binding Longitude}" Width="90" />
+                            <DataGridTextColumn Header="Imagen" Binding="{Binding HasImage}" Width="70" />
+                            <DataGridTextColumn Header="Lote (PIN)" Binding="{Binding BatchPin}" Width="90" />
+                            <DataGridTextColumn Header="Firma" Binding="{Binding Signature}" Width="*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
                 </Grid>
             </TabItem>
         </TabControl>

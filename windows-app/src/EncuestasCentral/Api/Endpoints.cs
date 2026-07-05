@@ -85,13 +85,14 @@ public static class Endpoints
                 accepted++;
             }
 
-            // Upsert encuestador.
+            // Upsert encuestador (con nombre completo si el dispositivo lo envió).
             var surveyor = await db.Surveyors.FindAsync(batch.SurveyorDocument);
             if (surveyor == null)
             {
                 db.Surveyors.Add(new SurveyorRow
                 {
                     Id = batch.SurveyorDocument,
+                    FullName = string.IsNullOrWhiteSpace(batch.SurveyorName) ? null : batch.SurveyorName,
                     FirstSeen = now,
                     ResponseCount = accepted
                 });
@@ -99,6 +100,8 @@ public static class Endpoints
             else
             {
                 surveyor.ResponseCount += accepted;
+                if (string.IsNullOrWhiteSpace(surveyor.FullName) && !string.IsNullOrWhiteSpace(batch.SurveyorName))
+                    surveyor.FullName = batch.SurveyorName;
             }
 
             db.Batches.Add(new BatchRow

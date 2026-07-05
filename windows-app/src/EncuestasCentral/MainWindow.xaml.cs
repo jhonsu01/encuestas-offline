@@ -56,17 +56,40 @@ public partial class MainWindow : Window
             {
                 using var db = new AppDbContext();
                 db.Database.EnsureCreated();
+                var now = DateTime.UtcNow.ToString("o");
+
                 if (db.Devices.Find(id) == null)
                 {
                     db.Devices.Add(new DeviceRow
                     {
                         DeviceId = id,
                         SurveyorId = dev.SurveyorId,
-                        FirstSeen = DateTime.UtcNow.ToString("o"),
+                        FirstSeen = now,
                         Allowed = true
                     });
-                    db.SaveChanges();
                 }
+
+                // Registrar/actualizar el nombre del encuestador aunque aún no haya sincronizado.
+                if (!string.IsNullOrWhiteSpace(dev.SurveyorId))
+                {
+                    var sr = db.Surveyors.Find(dev.SurveyorId);
+                    if (sr == null)
+                    {
+                        db.Surveyors.Add(new SurveyorRow
+                        {
+                            Id = dev.SurveyorId,
+                            FullName = string.IsNullOrWhiteSpace(dev.Name) ? null : dev.Name,
+                            FirstSeen = now,
+                            ResponseCount = 0
+                        });
+                    }
+                    else if (string.IsNullOrWhiteSpace(sr.FullName) && !string.IsNullOrWhiteSpace(dev.Name))
+                    {
+                        sr.FullName = dev.Name;
+                    }
+                }
+
+                db.SaveChanges();
             }
             catch { /* mejor esfuerzo */ }
         });
@@ -419,21 +442,62 @@ public partial class MainWindow : Window
         return space > 0 ? isoTimestamp[..space] : isoTimestamp;
     }
 
-    private void RefreshDashboard_Click(object sender, RoutedEventArgs e) => ApplyDashboard();
+    private List<DashboardRow> _allRows = new();
+    private List<DashboardRow> _filteredRows = new();
+    private bool _suppressFilter;
 
-    private void GroupByCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    private void RefreshDashboard_Click(object sender, RoutedEventArgs e) => RefreshDashboardData();
+
+    private void RefreshDashboardData()
     {
-        // Se dispara también durante la inicialización (antes de que existan filas); lo ignoramos.
-        if (!IsLoaded) return;
-        ApplyDashboard();
+        _allRows = BuildDashboardRows();
+        PopulateFilterCombos();
+        ApplyFilters();
     }
 
-    private void ApplyDashboard()
+    private void PopulateFilterCombos()
     {
-        var rows = BuildDashboardRows();
-        LblTotal.Text = $"Total de respuestas: {rows.Count}";
+        _suppressFilter = true;
 
-        var groupKey = (GroupByCombo.SelectedIndex) switch
+        var prevSurv = EncuestadorFilterCombo.SelectedItem as string;
+        EncuestadorFilterCombo.Items.Clear();
+        EncuestadorFilterCombo.Items.Add("Todos");
+        foreach (var s in _allRows.Select(r => r.SurveyorId).Where(x => !string.IsNullOrEmpty(x)).Distinct().OrderBy(x => x))
+            EncuestadorFilterCombo.Items.Add(s);
+        EncuestadorFilterCombo.SelectedItem =
+            (prevSurv != null && EncuestadorFilterCombo.Items.Contains(prevSurv)) ? prevSurv : "Todos";
+
+        var prevDia = DiaFilterCombo.SelectedItem as string;
+        DiaFilterCombo.Items.Clear();
+        DiaFilterCombo.Items.Add("Todos");
+        foreach (var d in _allRows.Select(r => r.ReceivedDate).Where(x => !string.IsNullOrEmpty(x)).Distinct().OrderByDescending(x => x))
+            DiaFilterCombo.Items.Add(d);
+        DiaFilterCombo.SelectedItem =
+            (prevDia != null && DiaFilterCombo.Items.Contains(prevDia)) ? prevDia : "Todos";
+
+        _suppressFilter = false;
+    }
+
+    private void Filtro_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _suppressFilter) return;
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        var surv = EncuestadorFilterCombo.SelectedItem as string;
+        var dia = DiaFilterCombo.SelectedItem as string;
+
+        IEnumerable<DashboardRow> q = _allRows;
+        if (!string.IsNullOrEmpty(surv) && surv != "Todos") q = q.Where(r => r.SurveyorId == surv);
+        if (!string.IsNullOrEmpty(dia) && dia != "Todos") q = q.Where(r => r.ReceivedDate == dia);
+        _filteredRows = q.ToList();
+
+        ResponsesGrid.ItemsSource = _filteredRows;
+        LblTotal.Text = $"Mostrando: {_filteredRows.Count} de {_allRows.Count} respuestas";
+
+        var groupKey = GroupByCombo.SelectedIndex switch
         {
             1 => "Encuesta",
             2 => "Encuestador",
@@ -441,35 +505,39 @@ public partial class MainWindow : Window
             _ => "Sin agrupar"
         };
 
-        if (rows.Count == 0)
+        if (_filteredRows.Count == 0)
         {
-            ResponsesGrid.ItemsSource = Array.Empty<DashboardRow>();
-            LblBySurveyor.Text = "Sin datos para mostrar.";
+            LblBySurveyor.Text = "Sin datos para el filtro actual.";
+            return;
+        }
+        if (groupKey == "Sin agrupar")
+        {
+            LblBySurveyor.Text = "";
             return;
         }
 
-        IEnumerable<string> summary;
-        if (groupKey == "Encuesta")
-            summary = rows.GroupBy(r => $"{r.SurveyId} · {r.SurveyTitle}")
-                          .Select(g => $"{g.Key}: {g.Count()}");
-        else if (groupKey == "Encuestador")
-            summary = rows.GroupBy(r => r.SurveyorId).Select(g => $"{g.Key}: {g.Count()}");
-        else if (groupKey == "Fecha (día)")
-            summary = rows.GroupBy(r => r.ReceivedDate).OrderBy(g => g.Key)
-                          .Select(g => $"{g.Key}: {g.Count()}");
-        else
-            summary = rows.GroupBy(r => r.SurveyorId).Select(g => $"{g.Key}: {g.Count()}");
-
+        IEnumerable<string> summary = groupKey switch
+        {
+            "Encuesta" => _filteredRows.GroupBy(r => r.SurveyTitle).Select(g => $"{g.Key}: {g.Count()}"),
+            "Encuestador" => _filteredRows.GroupBy(r => r.SurveyorId).Select(g => $"{g.Key}: {g.Count()}"),
+            "Fecha (día)" => _filteredRows.GroupBy(r => r.ReceivedDate).OrderByDescending(g => g.Key).Select(g => $"{g.Key}: {g.Count()}"),
+            _ => Enumerable.Empty<string>()
+        };
         LblBySurveyor.Text = $"Agrupado por {groupKey} → " + string.Join("   |   ", summary);
-        ResponsesGrid.ItemsSource = rows;
+    }
+
+    private List<DashboardRow> EnsureRows()
+    {
+        if (_allRows.Count == 0) RefreshDashboardData();
+        return _filteredRows;
     }
 
     private void ExportarCsv_Click(object sender, RoutedEventArgs e)
     {
-        var rows = ResponsesGrid.ItemsSource as List<DashboardRow> ?? BuildDashboardRows();
+        var rows = EnsureRows();
         if (rows.Count == 0)
         {
-            MessageBox.Show("No hay respuestas para exportar. Pulsa «Actualizar» primero.",
+            MessageBox.Show("No hay respuestas para exportar con el filtro actual.",
                 "Exportar CSV", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -490,7 +558,7 @@ public partial class MainWindow : Window
             // BOM UTF-8 para que Excel abra correctamente los acentos.
             File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             OnLog($"Dashboard exportado a CSV: {rows.Count} filas → {dlg.FileName}");
-            MessageBox.Show($"Exportadas {rows.Count} respuestas a:\n{dlg.FileName}",
+            MessageBox.Show($"Exportadas {rows.Count} respuestas (texto) a:\n{dlg.FileName}",
                 "Exportar CSV", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
@@ -499,4 +567,161 @@ public partial class MainWindow : Window
                 "Exportar CSV", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
+
+    private void ExportarHtml_Click(object sender, RoutedEventArgs e)
+    {
+        var rows = EnsureRows();
+        if (rows.Count == 0)
+        {
+            MessageBox.Show("No hay respuestas para exportar con el filtro actual.",
+                "Exportar HTML", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new SaveFileDialog
+        {
+            Filter = "HTML (*.html)|*.html",
+            FileName = $"encuestas_{DateTime.Now:yyyyMMdd_HHmm}.html"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var sigs = rows.Select(r => r.Signature).ToList();
+            using var db = new AppDbContext();
+            db.Database.EnsureCreated();
+
+            // Respuestas completas (con imagen) por chunks para no exceder límites de SQLite.
+            var responses = new List<ResponseRow>();
+            foreach (var chunk in sigs.Chunk(400))
+            {
+                var set = chunk.ToList();
+                responses.AddRange(db.Responses.Where(r => set.Contains(r.Signature)).ToList());
+            }
+            responses = responses.OrderByDescending(r => r.ReceivedAt).ToList();
+
+            var surveys = db.Surveys.ToList()
+                .Select(s => JsonSerializer.Deserialize<Survey>(s.Json, JsonOpts))
+                .Where(s => s != null)
+                .ToDictionary(s => s!.Id, s => s!);
+            var surveyorNames = db.Surveyors.ToList()
+                .ToDictionary(s => s.Id, s => s.FullName ?? "");
+
+            var html = BuildHtmlReport(responses, surveys, surveyorNames);
+            File.WriteAllText(dlg.FileName, html, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            OnLog($"Exportado HTML con imágenes: {responses.Count} respuestas → {dlg.FileName}");
+            MessageBox.Show(
+                $"Exportadas {responses.Count} respuestas (con imágenes) a:\n{dlg.FileName}\n\n" +
+                "Ábrelo con cualquier navegador; desde ahí puedes imprimirlo a PDF.",
+                "Exportar HTML", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"No se pudo exportar:\n{ex.Message}",
+                "Exportar HTML", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static string BuildHtmlReport(List<ResponseRow> responses,
+        Dictionary<string, Survey> surveys, Dictionary<string, string> surveyorNames)
+    {
+        var sb = new StringBuilder();
+        sb.Append("<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">");
+        sb.Append("<title>Encuestas sincronizadas</title><style>");
+        sb.Append("body{font-family:Segoe UI,Arial,sans-serif;margin:24px;color:#222;background:#f5f5f5}");
+        sb.Append("h1{color:#00695c}h2{color:#00695c;margin:0 0 6px}");
+        sb.Append(".card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:16px;margin:0 0 16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}");
+        sb.Append(".meta{color:#555;font-size:13px}table{border-collapse:collapse;margin:8px 0;width:100%}");
+        sb.Append("th,td{border:1px solid #e0e0e0;padding:6px 10px;text-align:left;vertical-align:top}th{background:#f0f0f0;width:40%}");
+        sb.Append("img{max-width:360px;max-height:360px;border-radius:6px;margin-top:8px;border:1px solid #ccc}");
+        sb.Append("</style></head><body>");
+        sb.Append($"<h1>Encuestas sincronizadas</h1><p class=\"meta\">Total: {responses.Count} · Generado: {HtmlEscape(DateTime.Now.ToString("yyyy-MM-dd HH:mm"))}</p>");
+
+        foreach (var r in responses)
+        {
+            surveys.TryGetValue(r.SurveyId, out var survey);
+            var labels = survey?.Questions.ToDictionary(q => q.Id, q => q.Label) ?? new Dictionary<string, string>();
+            var name = surveyorNames.TryGetValue(r.SurveyorId, out var n) && !string.IsNullOrWhiteSpace(n) ? n : r.SurveyorId;
+
+            sb.Append("<div class=\"card\">");
+            sb.Append($"<h2>{HtmlEscape(survey?.Title ?? r.SurveyId)}</h2>");
+            sb.Append("<p class=\"meta\">");
+            sb.Append($"Encuestador: {HtmlEscape(name)} ({HtmlEscape(r.SurveyorId)})<br>");
+            sb.Append($"Fecha: {HtmlEscape(r.Timestamp)} · Recibido: {HtmlEscape(r.ReceivedAt)}<br>");
+            if (r.Latitude != null && r.Longitude != null)
+                sb.Append($"GPS: {r.Latitude?.ToString(CultureInfo.InvariantCulture)}, {r.Longitude?.ToString(CultureInfo.InvariantCulture)}<br>");
+            sb.Append($"Firma: {HtmlEscape(r.Signature)}</p>");
+
+            Dictionary<string, string> answers;
+            try { answers = JsonSerializer.Deserialize<Dictionary<string, string>>(r.AnswersJson) ?? new(); }
+            catch { answers = new(); }
+
+            sb.Append("<table><tr><th>Pregunta</th><th>Respuesta</th></tr>");
+            foreach (var kv in answers)
+            {
+                var label = labels.TryGetValue(kv.Key, out var l) && !string.IsNullOrWhiteSpace(l) ? l : kv.Key;
+                sb.Append($"<tr><td>{HtmlEscape(label)}</td><td>{HtmlEscape(kv.Value)}</td></tr>");
+            }
+            sb.Append("</table>");
+
+            if (!string.IsNullOrEmpty(r.ImageBase64))
+                sb.Append($"<div><img src=\"data:image/jpeg;base64,{r.ImageBase64}\" alt=\"foto\"></div>");
+
+            sb.Append("</div>");
+        }
+
+        sb.Append("</body></html>");
+        return sb.ToString();
+    }
+
+    private void EliminarFiltrados_Click(object sender, RoutedEventArgs e)
+    {
+        var rows = _filteredRows;
+        if (rows.Count == 0)
+        {
+            MessageBox.Show("No hay respuestas para eliminar con el filtro actual.",
+                "Eliminar", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (MessageBox.Show(
+                $"¿Eliminar {rows.Count} respuesta(s) del filtro actual?\n\n" +
+                "Esta acción NO se puede deshacer.\nSugerencia: exporta antes (CSV o HTML).",
+                "Eliminar registros", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+
+        try
+        {
+            var sigs = rows.Select(r => r.Signature).ToList();
+            using var db = new AppDbContext();
+            db.Database.EnsureCreated();
+            int deleted = 0;
+            foreach (var chunk in sigs.Chunk(400))
+            {
+                var set = chunk.ToList();
+                var del = db.Responses.Where(r => set.Contains(r.Signature)).ToList();
+                db.Responses.RemoveRange(del);
+                deleted += del.Count;
+            }
+            db.SaveChanges();
+            RecomputeSurveyorCounts(db);
+
+            OnLog($"Eliminadas {deleted} respuestas del dashboard.");
+            MessageBox.Show($"Eliminadas {deleted} respuesta(s).", "Eliminar", MessageBoxButton.OK, MessageBoxImage.Information);
+            RefreshDashboardData();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"No se pudo eliminar:\n{ex.Message}", "Eliminar", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static void RecomputeSurveyorCounts(AppDbContext db)
+    {
+        foreach (var s in db.Surveyors.ToList())
+            s.ResponseCount = db.Responses.Count(r => r.SurveyorId == s.Id);
+        db.SaveChanges();
+    }
+
+    private static string HtmlEscape(string? s) =>
+        string.IsNullOrEmpty(s) ? "" :
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 }

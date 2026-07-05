@@ -17,6 +17,7 @@ public class SyncBatch
     public string Pin { get; set; } = "";
     public string DeviceId { get; set; } = "";
     public string SurveyorDocument { get; set; } = "";
+    public string SurveyorName { get; set; } = "";
     public List<ResponseDto> Responses { get; set; } = new();
 }
 
