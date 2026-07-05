@@ -44,7 +44,9 @@ public class ApiHost
 
         using (var scope = app.Services.CreateScope())
         {
-            scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.EnsureCreated();
+            var ctx = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            ctx.Database.EnsureCreated();
+            ctx.EnsureAuxSchema();
         }
 
         Endpoints.Map(app);

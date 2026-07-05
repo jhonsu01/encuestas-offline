@@ -37,6 +37,21 @@ public partial class MainWindow : Window
         EditorRoot.DataContext = _editorVM;
         LoadSurveysIntoEditor();
         UpdatePublishedCount();
+        EnsureDbSchema();
+    }
+
+    private void EnsureDbSchema()
+    {
+        try
+        {
+            using var db = new AppDbContext();
+            db.Database.EnsureCreated();
+            db.EnsureAuxSchema();
+        }
+        catch (Exception ex)
+        {
+            OnLog($"Aviso: no se pudo asegurar el esquema: {ex.Message}");
+        }
     }
 
     private void OnLog(string message)
@@ -350,11 +365,61 @@ public partial class MainWindow : Window
 
     // ---------------- Encuestadores ----------------
 
+    private sealed class SurveyorView
+    {
+        public string Documento { get; set; } = "";
+        public string Nombre { get; set; } = "";
+        public int Respuestas { get; set; }
+        public string GpsIngreso { get; set; } = "";
+        public string GpsCierre { get; set; } = "";
+        public string GpsSync { get; set; } = "";
+        public string PrimerContacto { get; set; } = "";
+    }
+
     private void RefreshSurveyors_Click(object sender, RoutedEventArgs e)
     {
         using var db = new AppDbContext();
         db.Database.EnsureCreated();
-        SurveyorsGrid.ItemsSource = db.Surveyors.OrderByDescending(s => s.ResponseCount).ToList();
+        db.EnsureAuxSchema();
+
+        var surveyors = db.Surveyors.ToList();
+        var events = db.LocationEvents.ToList();
+
+        string LatestGps(string surveyorId, string type)
+        {
+            var ev = events.Where(x => x.SurveyorId == surveyorId && x.Type == type)
+                           .OrderByDescending(x => x.Timestamp)
+                           .FirstOrDefault();
+            if (ev == null) return "";
+            var when = ShortTime(ev.Timestamp);
+            if (ev.Latitude == null || ev.Longitude == null) return $"(sin GPS) {when}";
+            return $"{ev.Latitude?.ToString("F5", CultureInfo.InvariantCulture)}, " +
+                   $"{ev.Longitude?.ToString("F5", CultureInfo.InvariantCulture)}  @ {when}";
+        }
+
+        var rows = surveyors
+            .OrderByDescending(s => s.ResponseCount)
+            .Select(s => new SurveyorView
+            {
+                Documento = s.Id,
+                Nombre = s.FullName ?? "",
+                Respuestas = s.ResponseCount,
+                GpsIngreso = LatestGps(s.Id, "login"),
+                GpsCierre = LatestGps(s.Id, "logout"),
+                GpsSync = LatestGps(s.Id, "sync"),
+                PrimerContacto = s.FirstSeen
+            })
+            .ToList();
+
+        SurveyorsGrid.ItemsSource = rows;
+    }
+
+    private static string ShortTime(string iso)
+    {
+        return DateTime.TryParse(iso, CultureInfo.InvariantCulture,
+                   System.Globalization.DateTimeStyles.RoundtripKind, out var dt)
+            ? dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+            : iso;
     }
 
     // ---------------- Dispositivos en red ----------------

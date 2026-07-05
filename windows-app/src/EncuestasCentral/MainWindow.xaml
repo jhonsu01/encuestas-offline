@@ -38,7 +38,7 @@
             <TabItem Header="Editor de encuestas">
                 <Grid x:Name="EditorRoot" Margin="10">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="260" />
+                        <ColumnDefinition Width="340" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
@@ -57,7 +57,19 @@
                         <ListBox x:Name="SurveysList"
                                  ItemsSource="{Binding Surveys}"
                                  SelectedItem="{Binding Selected, Mode=TwoWay}"
-                                 DisplayMemberPath="Title" />
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Title}" ToolTip="{Binding Title}"
+                                               TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
                     </DockPanel>
 
                     <!-- Constructor de la encuesta seleccionada -->
@@ -152,10 +164,13 @@
                     <Button Grid.Row="0" Content="Actualizar" Padding="10,5" HorizontalAlignment="Left" Click="RefreshSurveyors_Click" />
                     <DataGrid x:Name="SurveyorsGrid" Grid.Row="1" Margin="0,8,0,0" IsReadOnly="True" AutoGenerateColumns="False">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Documento" Binding="{Binding Id}" Width="170" />
-                            <DataGridTextColumn Header="Nombre completo" Binding="{Binding FullName}" Width="*" />
-                            <DataGridTextColumn Header="Primer contacto" Binding="{Binding FirstSeen}" Width="200" />
-                            <DataGridTextColumn Header="Respuestas" Binding="{Binding ResponseCount}" Width="110" />
+                            <DataGridTextColumn Header="Documento" Binding="{Binding Documento}" Width="150" />
+                            <DataGridTextColumn Header="Nombre completo" Binding="{Binding Nombre}" Width="180" />
+                            <DataGridTextColumn Header="Respuestas" Binding="{Binding Respuestas}" Width="90" />
+                            <DataGridTextColumn Header="GPS ingreso" Binding="{Binding GpsIngreso}" Width="210" />
+                            <DataGridTextColumn Header="GPS cierre" Binding="{Binding GpsCierre}" Width="210" />
+                            <DataGridTextColumn Header="GPS sincronización" Binding="{Binding GpsSync}" Width="210" />
+                            <DataGridTextColumn Header="Primer contacto" Binding="{Binding PrimerContacto}" Width="*" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>

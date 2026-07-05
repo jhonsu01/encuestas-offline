@@ -12,6 +12,14 @@ public class ResponseDto
     public string Signature { get; set; } = "";
 }
 
+public class LocationEventDto
+{
+    public string Type { get; set; } = "";        // login, logout, sync
+    public string Timestamp { get; set; } = "";
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+}
+
 public class SyncBatch
 {
     public string Pin { get; set; } = "";
@@ -19,6 +27,7 @@ public class SyncBatch
     public string SurveyorDocument { get; set; } = "";
     public string SurveyorName { get; set; } = "";
     public List<ResponseDto> Responses { get; set; } = new();
+    public List<LocationEventDto> ActivityEvents { get; set; } = new();
 }
 
 public class SyncResult

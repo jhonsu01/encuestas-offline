@@ -59,3 +59,15 @@ public class LogRow
     public string Time { get; set; } = "";
     public string Message { get; set; } = "";
 }
+
+public class LocationEventRow
+{
+    [Key] public int Id { get; set; }
+    public string SurveyorId { get; set; } = "";
+    public string DeviceId { get; set; } = "";
+    public string Type { get; set; } = "";        // login, logout, sync
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public string Timestamp { get; set; } = "";
+    public string ReceivedAt { get; set; } = "";
+}

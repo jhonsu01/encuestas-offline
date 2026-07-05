@@ -2,6 +2,7 @@ package com.encuestas.offline.ui
 
 import android.annotation.SuppressLint
 import android.app.Application
+import android.content.Context
 import android.provider.Settings
 import android.util.Base64
 import androidx.compose.runtime.getValue
@@ -18,6 +19,7 @@ import com.encuestas.offline.data.local.ResponseEntity
 import com.encuestas.offline.data.local.SurveyEntity
 import com.encuestas.offline.data.local.SurveyorEntity
 import com.encuestas.offline.data.remote.ApiFactory
+import com.encuestas.offline.data.remote.LocationEventDto
 import com.encuestas.offline.data.remote.ResponseDto
 import com.encuestas.offline.data.remote.SyncBatch
 import com.encuestas.offline.domain.DocumentType
@@ -27,6 +29,8 @@ import com.encuestas.offline.domain.HorarioValidator
 import com.encuestas.offline.domain.Survey
 import com.encuestas.offline.domain.Surveyor
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +47,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val db = AppDatabase.get(app)
     private val gson = Gson()
+    private val prefs = app.getSharedPreferences("encuestas_activity", Context.MODE_PRIVATE)
 
     /** Máximo de respuestas por petición de sincronización (mitiga HTTP 413 con imágenes Base64). */
     private val MAX_RESPUESTAS_POR_LOTE = 20
@@ -88,6 +93,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val sv = surveyor ?: run { navigate(Screen.REGISTRO); return }
         if (pin == sv.pin) {
             status = "Bienvenido, ${sv.fullName}"
+            registrarEvento("login")   // registra la ubicación de ingreso
             navigate(Screen.HOME)
         } else {
             status = "PIN incorrecto"
@@ -96,6 +102,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Cierra la sesión: conserva los datos del encuestador y vuelve a pedir el PIN. */
     fun logout() {
+        registrarEvento("logout")   // registra la ubicación de cierre de sesión
         answers.clear(); imagePath = null; lat = null; lon = null; currentSurvey = null
         status = "Sesión cerrada"
         navigate(Screen.LOGIN)
@@ -239,6 +246,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         sincronizar(pin)
     }
 
+    /** Obtiene una ubicación actual (fresca) para los eventos de actividad. */
+    @SuppressLint("MissingPermission")
+    private suspend fun ubicacionActual(): Pair<Double, Double>? = try {
+        val client = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
+        val cts = CancellationTokenSource()
+        val loc = client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, cts.token).await()
+            ?: client.lastLocation.await()
+        loc?.let { it.latitude to it.longitude }
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun addActivityEvent(type: String, ts: String, lat: Double?, lon: Double?) {
+        val list = getActivityEvents().toMutableList()
+        list.add(LocationEventDto(type, ts, lat, lon))
+        prefs.edit().putString("events", gson.toJson(list)).apply()
+    }
+
+    private fun getActivityEvents(): List<LocationEventDto> {
+        val json = prefs.getString("events", null) ?: return emptyList()
+        return runCatching {
+            gson.fromJson<List<LocationEventDto>>(
+                json, object : TypeToken<List<LocationEventDto>>() {}.type
+            )
+        }.getOrDefault(emptyList())
+    }
+
+    private fun clearActivityEvents() {
+        prefs.edit().remove("events").apply()
+    }
+
+    /** Registra en segundo plano un evento de actividad (login/logout) con su ubicación. */
+    private fun registrarEvento(tipo: String) {
+        viewModelScope.launch {
+            val loc = ubicacionActual()
+            addActivityEvent(tipo, Instant.now().toString(), loc?.first, loc?.second)
+        }
+    }
+
     private fun sincronizar(pin: String) {
         val srv = server ?: run { status = "No hay servidor. Búscalo primero."; return }
         val sv = surveyor ?: return
@@ -262,6 +308,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
 
+                // Evento de ubicación de la sincronización + eventos acumulados (login/logout).
+                val syncLoc = ubicacionActual()
+                addActivityEvent("sync", Instant.now().toString(), syncLoc?.first, syncLoc?.second)
+                val activityEvents = getActivityEvents()
+
                 // Fragmentar el envío en lotes pequeños para evitar HTTP 413 Payload Too Large
                 // (las imágenes van embebidas como Base64 y pueden hacer el body muy grande).
                 // El servidor también acepta hasta 200 MB, pero esto añade robustez.
@@ -272,7 +323,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 var syncedSignatures = mutableListOf<String>()
                 val chunks = dtos.chunked(MAX_RESPUESTAS_POR_LOTE)
                 for ((idx, chunk) in chunks.withIndex()) {
-                    val batch = SyncBatch(pin, deviceId, sv.id, sv.fullName, chunk)
+                    // Los eventos de actividad viajan solo en el primer lote.
+                    val batch = SyncBatch(
+                        pin, deviceId, sv.id, sv.fullName, chunk,
+                        if (idx == 0) activityEvents else emptyList()
+                    )
                     val result = withContext(Dispatchers.IO) { api.sync(batch) }
                     accepted += result.accepted
                     duplicates += result.duplicates
@@ -288,6 +343,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (syncedSignatures.isNotEmpty()) {
                     db.responseDao().markSynced(syncedSignatures, pin)
                 }
+                clearActivityEvents()   // los eventos de ubicación ya llegaron al servidor
                 refreshCounts()
                 status = "Sync OK (PIN $pin): $accepted aceptadas, " +
                         "$duplicates duplicadas, $rejected rechazadas"

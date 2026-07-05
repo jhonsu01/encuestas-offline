@@ -23,12 +23,20 @@ data class ResponseDto(
     val signature: String
 )
 
+data class LocationEventDto(
+    val type: String,          // login, logout, sync
+    val timestamp: String,
+    val latitude: Double?,
+    val longitude: Double?
+)
+
 data class SyncBatch(
     val pin: String,
     val deviceId: String,
     val surveyorDocument: String,
     val surveyorName: String,
-    val responses: List<ResponseDto>
+    val responses: List<ResponseDto>,
+    val activityEvents: List<LocationEventDto> = emptyList()
 )
 
 data class SyncResult(

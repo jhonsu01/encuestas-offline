@@ -123,6 +123,25 @@ public static class Endpoints
                           $"{accepted} aceptadas, {duplicates} duplicadas (PIN {batch.Pin})"
             });
 
+            // Eventos de ubicación del encuestador (ingreso/cierre/sincronización).
+            foreach (var ev in batch.ActivityEvents)
+            {
+                if (string.IsNullOrWhiteSpace(ev.Type)) continue;
+                var dup = await db.LocationEvents.AnyAsync(x =>
+                    x.SurveyorId == batch.SurveyorDocument && x.Type == ev.Type && x.Timestamp == ev.Timestamp);
+                if (dup) continue;
+                db.LocationEvents.Add(new LocationEventRow
+                {
+                    SurveyorId = batch.SurveyorDocument,
+                    DeviceId = batch.DeviceId,
+                    Type = ev.Type,
+                    Latitude = ev.Latitude,
+                    Longitude = ev.Longitude,
+                    Timestamp = ev.Timestamp,
+                    ReceivedAt = now
+                });
+            }
+
             await db.SaveChangesAsync();
             state.Log($"Lote recibido de {batch.SurveyorDocument}: +{accepted} (dup {duplicates})");
 
