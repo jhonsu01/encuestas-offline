@@ -102,10 +102,44 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Cierra la sesión: conserva los datos del encuestador y vuelve a pedir el PIN. */
     fun logout() {
-        registrarEvento("logout")   // registra la ubicación de cierre de sesión
+        // Captura el GPS de cierre y, si hay conexión con la central, envía de
+        // inmediato los eventos de ingreso + cierre (sin esperar a sincronizar datos).
+        viewModelScope.launch {
+            val loc = ubicacionActual()
+            addActivityEvent("logout", Instant.now().toString(), loc?.first, loc?.second)
+            val enviado = enviarEventosActividad()
+            status = if (enviado) "Sesión cerrada. Ubicaciones (ingreso/cierre) enviadas al servidor."
+            else "Sesión cerrada. Ubicaciones guardadas; se enviarán al sincronizar."
+        }
         answers.clear(); imagePath = null; lat = null; lon = null; currentSurvey = null
-        status = "Sesión cerrada"
+        status = "Cerrando sesión…"
         navigate(Screen.LOGIN)
+    }
+
+    /**
+     * Envía al servidor los eventos de actividad acumulados (ingreso/cierre/sync)
+     * en un lote sin respuestas. Devuelve true si se entregaron.
+     */
+    private suspend fun enviarEventosActividad(): Boolean {
+        val sv = surveyor ?: return false
+        val events = getActivityEvents()
+        if (events.isEmpty()) return true
+        val srv = server ?: DiscoveryClient(getApplication())
+            .discover(deviceId = deviceId, name = sv.fullName, surveyorId = sv.id)
+        if (srv == null) return false
+        server = srv
+        return try {
+            val api = ApiFactory.create("http://${srv.host}:${srv.port}")
+            val batch = SyncBatch(
+                pin = "sesion", deviceId = deviceId, surveyorDocument = sv.id,
+                surveyorName = sv.fullName, responses = emptyList(), activityEvents = events
+            )
+            withContext(Dispatchers.IO) { api.sync(batch) }
+            clearActivityEvents()
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /** Registrar un encuestador distinto (sobrescribe el actual). */
