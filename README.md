@@ -14,10 +14,12 @@ Sistema de recolección de encuestas **offline-first** con sincronización por *
 Todos los binarios se compilan automáticamente en GitHub Actions y se publican en la
 **[última release](https://github.com/jhonsu01/encuestas-offline/releases/latest)**:
 
-| Plataforma | Archivo                     | Instalación                                        |
-| ---------- | --------------------------- | -------------------------------------------------- |
-| 📱 Android | `encuestas-android.apk`     | Copiar al teléfono → abrir → permitir orígenes desconocidos |
-| 🖥️ Windows | `EncuestasCentral.msi`      | Doble clic → siguiente → instalar                  |
+| Plataforma | Archivo                          | Instalación                                        |
+| ---------- | -------------------------------- | -------------------------------------------------- |
+| 📱 Android | `encuestas-android-vX.Y.Z.apk`   | Copiar al teléfono → abrir → permitir orígenes desconocidos |
+| 🖥️ Windows | `EncuestasCentral-vX.Y.Z.msi`    | Doble clic → siguiente → instalar                  |
+
+> Cada archivo lleva el número de versión en el nombre (p. ej. `encuestas-android-v0.1.7.apk`).
 
 > Solo se mantiene **la última release**; las anteriores se eliminan automáticamente
 > en cada nuevo build (ver `.github/workflows/release.yml`).

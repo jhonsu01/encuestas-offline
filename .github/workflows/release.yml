@@ -149,13 +149,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
+          # Renombrar los binarios incluyendo el tag de la versión.
+          APK="encuestas-android-$TAG.apk"
+          MSI="EncuestasCentral-$TAG.msi"
+          mv dist/encuestas-android.apk "dist/$APK"
+          mv dist/EncuestasCentral.msi "dist/$MSI"
           {
             echo "### 📦 Sistema de Encuestas Offline — $TAG"
             echo ""
             echo "Binarios listos para instalar (compilados automáticamente en CI):"
             echo ""
-            echo "- 📱 **Android**: \`encuestas-android.apk\` → permitir orígenes desconocidos e instalar (APK release firmado)."
-            echo "- 🖥️ **Windows**: \`EncuestasCentral.msi\` → doble clic e instalar (self-contained, no requiere .NET)."
+            echo "- 📱 **Android**: \`$APK\` → permitir orígenes desconocidos e instalar (APK release firmado)."
+            echo "- 🖥️ **Windows**: \`$MSI\` → doble clic e instalar (self-contained, no requiere .NET)."
             echo ""
             echo "> Solo se conserva la última release; las anteriores se eliminan automáticamente en cada nuevo build."
           } > notes.md
@@ -163,5 +168,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Encuestas Offline $TAG" \
             --notes-file notes.md \
-            dist/encuestas-android.apk \
-            dist/EncuestasCentral.msi
+            "dist/$APK" \
+            "dist/$MSI"
